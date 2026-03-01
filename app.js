@@ -103,7 +103,7 @@ async function requestMicrophoneOnce() {
 //   4. Оценку сложности текста по шкале 1–5
 
 // HuggingFace ключ — запрос идёт напрямую из браузера, server.js не нужен!
-const HF_API_KEY = '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';
+const HF_API_KEY = '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';
 
 async function analyzeWithAI(text, language) {
     const aiResultDiv = document.getElementById('aiAnalysisResult');
@@ -873,3 +873,4 @@ document.addEventListener('DOMContentLoaded', () => {
         auth.onAuthStateChanged(loadRecommendation);
     }
 });
+
