@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Диагностика</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="index.html">SpeechPlatform</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item"><a class="nav-link" href="index.html">Главная</a></li>
+                    <li class="nav-item"><a class="nav-link active" href="diagnostic.html">Диагностика</a></li>
+                    <li class="nav-item"><a class="nav-link" href="exercises.html">Упражнения</a></li>
+                    <li class="nav-item"><a class="nav-link" href="progress.html">Прогресс</a></li>
+                </ul>
+                <ul class="navbar-nav" id="nav-auth"></ul>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mt-4">
+        <h2>Диагностика речи</h2>
+        <p class="text-muted">Прочитайте вслух одно из предложений, затем нажмите «Начать запись»:</p>
+
+        <ul id="phrases" class="list-group mb-3">
+            <li class="list-group-item">Шла Саша по шоссе и сосала сушку.</li>
+            <li class="list-group-item">На горе Арарат растёт красный виноград.</li>
+            <li class="list-group-item">Карл у Клары украл кораллы, а Клара у Карла украла кларнет.</li>
+        </ul>
+
+        <div class="mb-3 d-flex flex-wrap gap-2">
+            <button id="startRecord" class="btn btn-success">🎙️ Начать запись</button>
+            <button id="stopRecord" class="btn btn-danger" disabled>⏹ Остановить</button>
+            <button id="playRecord" class="btn btn-info" disabled>▶️ Прослушать</button>
+            <button id="downloadRecord" class="btn btn-secondary" disabled>⬇️ Скачать</button>
+        </div>
+
+        <div id="recordingStatus" class="mb-3 text-muted small"></div>
+
+        <!-- Распознанный текст + базовая фонетика -->
+        <div class="row mt-4">
+            <div class="col-md-6 mb-3">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h5 class="mb-0">Распознанный текст</h5>
+                    </div>
+                    <div class="card-body d-flex flex-column">
+                        <div id="recognizedText" class="mb-3 flex-grow-1">—</div>
+                        <div class="d-flex gap-2">
+                            <button id="copyText" class="btn btn-sm btn-outline-secondary" disabled>Копировать текст</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 mb-3">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h5 class="mb-0">Фонетическая транскрипция</h5>
+                        <small class="text-muted">Базовый анализ по словарю</small>
+                    </div>
+                    <div class="card-body d-flex flex-column">
+                        <!-- Переключатель режима добавляется через JavaScript -->
+                        <div id="phoneticText" class="mb-3 flex-grow-1">—</div>
+                        <button id="copyPhonetic" class="btn btn-sm btn-outline-secondary" disabled>Копировать фонетику</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!--
+            ╔══════════════════════════════════════════════════════════════╗
+            ║           БЛОК AI-АНАЛИЗА РЕЧИ (Claude API)                ║
+            ║                                                              ║
+            ║  Появляется автоматически после завершения записи.          ║
+            ║  Функция analyzeWithAI() в app.js отправляет распознанный   ║
+            ║  текст в Claude, который возвращает:                        ║
+            ║    1. Фонетическую транскрипцию каждого слова (IPA)        ║
+            ║    2. Анализ сложных звуков и сочетаний                    ║
+            ║    3. Практические рекомендации логопеда                   ║
+            ║    4. Оценку сложности текста 1–5                          ║
+            ╚══════════════════════════════════════════════════════════════╝
+        -->
+        <div id="aiAnalysisBlock" class="card mt-2 mb-4 d-none border-primary">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-2">
+                    <span style="font-size:1.3rem">🤖</span>
+                    <strong>AI-анализ произношения</strong>
+                    <span class="badge bg-light text-primary" style="font-size:.65rem; font-weight:600">Claude AI</span>
+                </div>
+                <button id="reanalyzeBtn" class="btn btn-sm btn-outline-light">
+                    🔄 Повторить анализ
+                </button>
+            </div>
+            <div class="card-body">
+                <div id="aiAnalysisResult">
+                    <!-- Сюда вставляется структурированный ответ от Claude API -->
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-1 mb-5">
+            <button id="saveResult" class="btn btn-primary" disabled>💾 Сохранить результат</button>
+        </div>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

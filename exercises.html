@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Упражнения</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="index.html">SpeechPlatform</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item"><a class="nav-link" href="index.html">Главная</a></li>
+                    <li class="nav-item"><a class="nav-link" href="diagnostic.html">Диагностика</a></li>
+                    <li class="nav-item"><a class="nav-link" href="exercises.html">Упражнения</a></li>
+                    <li class="nav-item"><a class="nav-link" href="progress.html">Прогресс</a></li>
+                </ul>
+                <ul class="navbar-nav" id="nav-auth"></ul>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mt-4">
+        <h2>Упражнения для коррекции речи</h2>
+        
+        <!-- Блок с рекомендациями на основе диагностики -->
+        <div id="recommendation" class="alert alert-success mb-4"></div>
+
+        <!-- Список разделов упражнений -->
+        <div class="row" id="exerciseCategories">
+            <!-- Категории будут загружены через JavaScript -->
+        </div>
+
+        <!-- Детальная страница упражнения (скрыта по умолчанию) -->
+        <div id="exerciseDetail" class="d-none">
+            <button class="btn btn-outline-secondary mb-3" onclick="backToCategories()">← Назад к списку</button>
+            <div id="exerciseContent"></div>
+        </div>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
