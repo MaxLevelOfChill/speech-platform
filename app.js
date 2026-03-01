@@ -66,6 +66,7 @@ auth.onAuthStateChanged((user) => {
             `;
         }
     }
+    // Загружаем прогресс, если мы на странице прогресса
     if (document.getElementById('totalStats')) {
         loadProgress(user);
     }
@@ -92,14 +93,17 @@ async function requestMicrophoneOnce() {
     }
 }
 
-// ================== AI Анализ речи через Groq (БЕСПЛАТНО) ==================
+// ================== AI Анализ речи через Claude API ==================
 //
-// Используем Groq API с моделью Llama 3.3 70B.
-// Groq — полностью бесплатен, не требует банковской карты.
-// Получить ключ: https://console.groq.com → API Keys → Create Key
-//
-// Запрос идёт через локальный server.js (прокси),
-// чтобы ключ не светился в браузере.
+// Эта функция отправляет распознанный текст в Claude,
+// который выступает как эксперт-логопед и возвращает:
+//   1. Фонетическую транскрипцию каждого слова (IPA / русская фонетика)
+//   2. Анализ сложных звуков и сочетаний в тексте
+//   3. Практические рекомендации по улучшению произношения
+//   4. Оценку сложности текста по шкале 1–5
+
+// HuggingFace ключ — запрос идёт напрямую из браузера, server.js не нужен!
+const HF_API_KEY = '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';
 
 async function analyzeWithAI(text, language) {
     const aiResultDiv = document.getElementById('aiAnalysisResult');
@@ -107,6 +111,7 @@ async function analyzeWithAI(text, language) {
 
     if (!aiBlock || !aiResultDiv) return;
 
+    // Показываем блок и ставим спиннер
     aiBlock.classList.remove('d-none');
     aiResultDiv.innerHTML = `
         <div class="d-flex align-items-center gap-2 text-secondary py-2">
@@ -115,11 +120,12 @@ async function analyzeWithAI(text, language) {
         </div>
     `;
 
+    // Подсказка по языку для модели
     const langHint = language === 'en'
-        ? 'Текст на английском языке. Для транскрипции используй IPA (British/American English).'
+        ? 'Текст на английском языке. Для транскрипции используй стандартный IPA (British/American English).'
         : language === 'ru'
         ? 'Текст на русском языке. Для транскрипции используй русскую фонетическую транскрипцию.'
-        : 'Определи язык автоматически (русский или английский) и применяй соответствующую транскрипцию.';
+        : 'Определи язык текста автоматически (русский или английский) и применяй соответствующую систему транскрипции.';
 
     const prompt = `Ты — эксперт по фонетике и логопедии. Проанализируй следующий текст, который человек произнёс вслух.
 
@@ -127,41 +133,45 @@ async function analyzeWithAI(text, language) {
 
 ${langHint}
 
-Дай структурированный анализ по четырём разделам:
+Дай структурированный анализ по следующим разделам:
 
 1. 📝 Фонетическая транскрипция
 Для каждого слова укажи транскрипцию в квадратных скобках. Формат: слово [транскрипция]
 
 2. 🔍 Анализ произношения
-Выдели потенциально сложные звуки или сочетания в этом тексте (шипящие, сонорные, стечения согласных, безударные гласные и т.д.)
+Выдели потенциально сложные звуки или сочетания букв в этом конкретном тексте (шипящие, сонорные, стечения согласных, безударные гласные и т.д.)
 
 3. 💡 Рекомендации
-Дай 2–3 конкретных практических совета по улучшению произношения этого текста.
+Дай 2–3 конкретных практических совета по улучшению произношения этого текста (упражнения, артикуляция, на что обратить особое внимание)
 
 4. ⭐ Сложность произношения
-Оцени текст по шкале 1–5 (1 — очень просто, 5 — очень сложно) и кратко объясни.
+Оцени текст по шкале от 1 до 5 (1 — очень просто, 5 — очень сложно) и кратко объясни оценку.
 
 Отвечай только на русском языке. Будь конкретным и полезным.`;
 
     try {
-        // Отправляем запрос на локальный прокси-сервер (server.js)
-        // Прокси пересылает запрос в Groq API с нашим ключом
-        const response = await fetch("http://localhost:3000/api/analyze", {
+        // Прямой запрос к HuggingFace — server.js больше не нужен!
+        const response = await fetch("https://router.huggingface.co/v1/chat/completions", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${HF_API_KEY}`
+            },
             body: JSON.stringify({
-                messages: [{ role: "user", content: prompt }]
+                model: "meta-llama/Llama-3.1-8B-Instruct:novita",
+                messages: [{ role: "user", content: prompt }],
+                max_tokens: 1024,
+                temperature: 0.3
             })
         });
 
         if (!response.ok) {
             const errText = await response.text();
-            throw new Error(`Ошибка сервера: ${response.status} — ${errText}`);
+            throw new Error(`Ошибка: ${response.status} — ${errText}`);
         }
 
         const data = await response.json();
 
-        // Groq отвечает в OpenAI-совместимом формате
         if (data.error) {
             throw new Error(data.error.message || JSON.stringify(data.error));
         }
@@ -181,10 +191,6 @@ ${langHint}
             <div class="alert alert-warning mb-0">
                 <strong>⚠️ Не удалось получить AI-анализ</strong><br>
                 <small class="text-muted">${err.message}</small><br>
-                <small class="text-muted d-block mt-1">
-                    Убедитесь что: 1) запущен <code>node server.js</code> в терминале,
-                    2) в <code>server.js</code> вставлен ключ от <a href="https://console.groq.com" target="_blank">console.groq.com</a>
-                </small>
                 <button class="btn btn-sm btn-outline-warning mt-2" id="retryAI">🔄 Повторить</button>
             </div>
         `;
@@ -194,14 +200,25 @@ ${langHint}
     }
 }
 
-// Форматирование ответа нейросети в красивый HTML
+/**
+ * Преобразует markdown-подобный текст от Claude в аккуратный HTML
+ */
 function formatAIResponse(text) {
-    text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // Заголовки с эмодзи (## или цифры + точка)
     text = text.replace(/^#{1,3}\s*(.+)$/gm, '<h6 class="ai-section-title">$1</h6>');
-    text = text.replace(/^\d+\.\s+(📝|🔍|💡|⭐.+)$/gm, '<h6 class="ai-section-title">$1</h6>');
+    // Нумерованные разделы типа "1. 📝 Название"
+    text = text.replace(/^\d+\.\s+(.+)$/gm, '<h6 class="ai-section-title">$1</h6>');
+    // Жирный текст
+    text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // Курсив
+    text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    // Маркированные списки
     text = text.replace(/^[-•]\s+(.+)$/gm, '<div class="ai-bullet-item">▸ $1</div>');
-    text = text.replace(/\n\n/g, '<br>');
-    text = text.replace(/\n/g, ' ');
+    // Двойные переносы -> параграфы
+    text = text.replace(/\n\n/g, '</p><p>');
+    // Одиночные переносы -> br
+    text = text.replace(/\n/g, '<br>');
+
     return `<div class="ai-response-body"><p>${text}</p></div>`;
 }
 
@@ -237,10 +254,13 @@ if (document.getElementById('startRecord')) {
             modeSelector.querySelectorAll('button').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             currentPhoneticMode = btn.dataset.mode;
-            if (finalTranscript) getPhonetics(finalTranscript, currentPhoneticMode);
+            if (finalTranscript) {
+                getPhonetics(finalTranscript, currentPhoneticMode);
+            }
         });
     });
 
+    // Кэш для фонетики
     const phoneticCache = {};
 
     // ---------- Локальный словарь английских слов (IPA) ----------
@@ -276,15 +296,18 @@ if (document.getElementById('startRecord')) {
         "very": "ˈveri", "much": "mʌtʃ", "here": "hɪər", "right": "raɪt",
         "old": "əʊld", "big": "bɪɡ", "same": "seɪm", "too": "tuː",
         "little": "ˈlɪtəl", "hand": "hænd", "place": "pleɪs", "great": "ɡreɪt",
-        "where": "weər", "long": "lɒŋ", "need": "niːd", "often": "ˈɒfən"
+        "where": "weər", "long": "lɒŋ", "between": "bɪˈtwiːn", "need": "niːd",
+        "large": "lɑːdʒ", "often": "ˈɒfən", "around": "əˈraʊnd"
     };
 
-    // ---------- Русская фонетика ----------
+    // ---------- Фонетика для русских слов ----------
     function russianPhonetic(word) {
         word = word.toLowerCase().replace(/ё/g, 'е');
         const vowels = 'аеиоуыэюя';
         const voiced = 'бвгджз';
         const voiceless = 'пфктшс';
+        const alwaysVoiceless = 'хцчщ';
+        const sonorants = 'лмнрй';
 
         let result = '';
         const len = word.length;
@@ -299,29 +322,31 @@ if (document.getElementById('startRecord')) {
                 else if (ch === 'я' && i !== len - 1) ch = 'и';
             }
 
-            if (i === len - 1) {
-                if (ch === 'б') ch = 'п';
-                else if (ch === 'в') ch = 'ф';
-                else if (ch === 'г') ch = 'к';
-                else if (ch === 'д') ch = 'т';
-                else if (ch === 'ж') ch = 'ш';
-                else if (ch === 'з') ch = 'с';
-            }
-            if (voiced.includes(ch) && voiceless.includes(next)) {
-                if (ch === 'б') ch = 'п';
-                else if (ch === 'в') ch = 'ф';
-                else if (ch === 'г') ch = 'к';
-                else if (ch === 'д') ch = 'т';
-                else if (ch === 'ж') ch = 'ш';
-                else if (ch === 'з') ch = 'с';
-            }
-            if (voiceless.includes(ch) && voiced.includes(next)) {
-                if (ch === 'п') ch = 'б';
-                else if (ch === 'ф') ch = 'в';
-                else if (ch === 'к') ch = 'г';
-                else if (ch === 'т') ch = 'д';
-                else if (ch === 'ш') ch = 'ж';
-                else if (ch === 'с') ch = 'з';
+            if (voiced.includes(ch) || voiceless.includes(ch) || alwaysVoiceless.includes(ch) || sonorants.includes(ch)) {
+                if (i === len - 1) {
+                    if (ch === 'б') ch = 'п';
+                    else if (ch === 'в') ch = 'ф';
+                    else if (ch === 'г') ch = 'к';
+                    else if (ch === 'д') ch = 'т';
+                    else if (ch === 'ж') ch = 'ш';
+                    else if (ch === 'з') ch = 'с';
+                }
+                if (voiced.includes(ch) && voiceless.includes(next)) {
+                    if (ch === 'б') ch = 'п';
+                    else if (ch === 'в') ch = 'ф';
+                    else if (ch === 'г') ch = 'к';
+                    else if (ch === 'д') ch = 'т';
+                    else if (ch === 'ж') ch = 'ш';
+                    else if (ch === 'з') ch = 'с';
+                }
+                if (voiceless.includes(ch) && voiced.includes(next)) {
+                    if (ch === 'п') ch = 'б';
+                    else if (ch === 'ф') ch = 'в';
+                    else if (ch === 'к') ch = 'г';
+                    else if (ch === 'т') ch = 'д';
+                    else if (ch === 'ш') ch = 'ж';
+                    else if (ch === 'с') ch = 'з';
+                }
             }
             result += ch;
         }
@@ -361,13 +386,26 @@ if (document.getElementById('startRecord')) {
 
         let phonetic = '';
         try {
-            const response = await fetchWithRetry(
-                `https://api.dictionaryapi.dev/api/v2/entries/en/${word}`, {}, 2, 4000
-            );
+            const response = await fetchWithRetry(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`, {}, 2, 4000);
             const data = await response.json();
             if (data[0]?.phonetic) phonetic = data[0].phonetic;
             else if (data[0]?.phonetics?.[0]?.text) phonetic = data[0].phonetics[0].text;
-        } catch (e) { /* тихо пропускаем */ }
+        } catch (e) {
+            console.warn(`FreeDictionary error for ${word}:`, e);
+        }
+
+        if (!phonetic) {
+            try {
+                const response = await fetchWithRetry(`https://api.datamuse.com/words?sp=${word}&md=r`, {}, 1, 3000);
+                const data = await response.json();
+                if (data[0]?.tags) {
+                    const tag = data[0].tags.find(t => t.startsWith('pron:'));
+                    if (tag) phonetic = tag.replace('pron:', '');
+                }
+            } catch (e) {
+                console.warn(`Datamuse error for ${word}:`, e);
+            }
+        }
 
         if (!phonetic) {
             phonetic = word.split('').map(ch => {
@@ -378,11 +416,11 @@ if (document.getElementById('startRecord')) {
         return phonetic;
     }
 
-    // ---------- Основная функция базовой фонетики ----------
+    // ---------- Основная функция фонетики ----------
     async function getPhonetics(text, mode = 'auto') {
         if (!text || !text.trim()) return;
 
-        phoneticTextDiv.innerHTML = 'Загрузка... <span class="spinner-border spinner-border-sm" role="status"></span>';
+        phoneticTextDiv.innerHTML = 'Загрузка фонетики... <span class="spinner-border spinner-border-sm" role="status"></span>';
 
         const words = text.toLowerCase().match(/[a-zа-яё]+(?:['-][a-zа-яё]+)*/g) || [];
         if (words.length === 0) {
@@ -400,32 +438,46 @@ if (document.getElementById('startRecord')) {
             }
 
             const isLatin = /^[a-z']+$/.test(word);
-            let result = mode === 'en'
-                ? await getEnglishPhonetic(word)
-                : isLatin ? await getEnglishPhonetic(word) : russianPhonetic(word);
+            let result = '';
+
+            if (mode === 'en') {
+                result = await getEnglishPhonetic(word);
+            } else {
+                if (isLatin) result = await getEnglishPhonetic(word);
+                else result = russianPhonetic(word);
+            }
 
             phoneticCache[cacheKey] = result;
             phonetics.push(`${word}: ${result}`);
             await new Promise(r => setTimeout(r, 50));
         }
 
-        phoneticTextDiv.innerHTML = phonetics.length > 0 ? phonetics.join('<br>') : '—';
-        if (phonetics.length > 0) copyPhoneticBtn.disabled = false;
+        if (phonetics.length > 0) {
+            phoneticTextDiv.innerHTML = phonetics.join('<br>');
+            copyPhoneticBtn.disabled = false;
+        } else {
+            phoneticTextDiv.innerHTML = '—';
+        }
 
-        // После базовой фонетики — запускаем AI-анализ через Groq
+        // После базовой фонетики — запускаем полный AI-анализ через Claude
         analyzeWithAI(text, mode);
     }
 
     // ---------- Запрос микрофона ----------
     requestMicrophoneOnce().then(stream => {
-        if (!stream) statusDiv.innerHTML = '⚠️ Нет доступа к микрофону. Проверьте разрешения.';
+        if (!stream) {
+            statusDiv.innerHTML = '⚠️ Нет доступа к микрофону. Проверьте разрешения в браузере.';
+        }
     });
 
-    // ---------- Кнопки ----------
+    // ---------- Кнопка "Начать запись" ----------
     startBtn.addEventListener('click', async () => {
         try {
-            let stream = microphoneStream || await requestMicrophoneOnce();
-            if (!stream) throw new Error('Микрофон не доступен');
+            let stream = microphoneStream;
+            if (!stream) {
+                stream = await requestMicrophoneOnce();
+                if (!stream) throw new Error('Микрофон не доступен');
+            }
 
             mediaRecorder = new MediaRecorder(stream);
             audioChunks = [];
@@ -434,10 +486,12 @@ if (document.getElementById('startRecord')) {
             phoneticTextDiv.innerHTML = '';
             window.lastAIAnalysis = '';
 
+            // Скрываем блок AI при новой записи
             const aiBlock = document.getElementById('aiAnalysisBlock');
             if (aiBlock) aiBlock.classList.add('d-none');
 
-            mediaRecorder.ondataavailable = e => { audioChunks.push(e.data); };
+            mediaRecorder.ondataavailable = event => { audioChunks.push(event.data); };
+
             mediaRecorder.onstop = () => {
                 recordedBlob = new Blob(audioChunks, { type: 'audio/webm' });
                 if (audioUrl) URL.revokeObjectURL(audioUrl);
@@ -446,13 +500,14 @@ if (document.getElementById('startRecord')) {
                 downloadBtn.disabled = false;
                 statusDiv.innerHTML = '✅ Запись завершена.';
             };
+
             mediaRecorder.start();
 
             if (recognition) {
                 recognition.start();
-                statusDiv.innerHTML = '🎙️ Запись идёт... Говорите!';
+                statusDiv.innerHTML = '🎙️ Идёт запись и распознавание... Говорите...';
             } else {
-                statusDiv.innerHTML = '🎙️ Запись идёт... (распознавание недоступно)';
+                statusDiv.innerHTML = '🎙️ Идёт запись... (распознавание речи недоступно)';
             }
 
             startBtn.disabled = true;
@@ -466,15 +521,20 @@ if (document.getElementById('startRecord')) {
         }
     });
 
+    // ---------- Кнопка "Остановить" ----------
     stopBtn.addEventListener('click', () => {
         if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
         if (recognition) recognition.stop();
+
         startBtn.disabled = false;
         stopBtn.disabled = true;
+
         if (finalTranscript) saveBtn.disabled = false;
     });
 
-    playBtn.addEventListener('click', () => { if (audioUrl) new Audio(audioUrl).play(); });
+    playBtn.addEventListener('click', () => {
+        if (audioUrl) new Audio(audioUrl).play();
+    });
 
     downloadBtn.addEventListener('click', () => {
         if (recordedBlob && audioUrl) {
@@ -498,9 +558,7 @@ if (document.getElementById('startRecord')) {
     });
 
     // Редактирование распознанного текста
-    const editBtn = (() => {
-        const existing = document.getElementById('editText');
-        if (existing) return existing;
+    const editBtn = document.getElementById('editText') || (() => {
         const btn = document.createElement('button');
         btn.id = 'editText';
         btn.className = 'btn btn-warning btn-sm mt-2';
@@ -510,8 +568,9 @@ if (document.getElementById('startRecord')) {
     })();
 
     editBtn.addEventListener('click', () => {
+        const currentText = recognizedTextDiv.innerText;
         const input = document.createElement('textarea');
-        input.value = recognizedTextDiv.innerText;
+        input.value = currentText;
         input.className = 'form-control mb-2';
         input.rows = 3;
         recognizedTextDiv.innerHTML = '';
@@ -532,22 +591,29 @@ if (document.getElementById('startRecord')) {
     });
 
     // Кнопка повторного AI-анализа
-    document.getElementById('reanalyzeBtn')?.addEventListener('click', () => {
-        if (finalTranscript) analyzeWithAI(finalTranscript, currentPhoneticMode);
-    });
+    const reanalyzeBtn = document.getElementById('reanalyzeBtn');
+    if (reanalyzeBtn) {
+        reanalyzeBtn.addEventListener('click', () => {
+            if (finalTranscript) analyzeWithAI(finalTranscript, currentPhoneticMode);
+        });
+    }
 
-    // Сохранение в Firestore
+    // Сохранение результата в Firestore
     saveBtn.addEventListener('click', async () => {
         const user = auth.currentUser;
-        if (!user) { alert('Войдите, чтобы сохранить результат'); return; }
+        if (!user) {
+            alert('Войдите, чтобы сохранить результат');
+            return;
+        }
 
-        await db.collection('diagnostics').doc(user.uid).set({
+        const diagnosticData = {
             text: finalTranscript,
             phonetics: phoneticTextDiv.innerText,
             aiAnalysis: window.lastAIAnalysis || '',
             timestamp: firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
+        };
 
+        await db.collection('diagnostics').doc(user.uid).set(diagnosticData, { merge: true });
         await db.collection('users').doc(user.uid).set({
             lastDiagnostic: finalTranscript.substring(0, 100),
             diagnosticCount: firebase.firestore.FieldValue.increment(1)
@@ -555,7 +621,7 @@ if (document.getElementById('startRecord')) {
 
         saveBtn.textContent = '✅ Сохранено!';
         saveBtn.disabled = true;
-        setTimeout(() => { saveBtn.textContent = '💾 Сохранить результат'; }, 3000);
+        setTimeout(() => { saveBtn.textContent = 'Сохранить результат'; }, 3000);
     });
 
     // Инициализация Web Speech API
@@ -568,13 +634,18 @@ if (document.getElementById('startRecord')) {
         recognition.onresult = (event) => {
             let interimTranscript = '';
             let newFinal = '';
+
             for (let i = event.resultIndex; i < event.results.length; i++) {
-                const t = event.results[i][0].transcript;
-                if (event.results[i].isFinal) newFinal += t + ' ';
-                else interimTranscript += t;
+                const transcript = event.results[i][0].transcript;
+                if (event.results[i].isFinal) newFinal += transcript + ' ';
+                else interimTranscript += transcript;
             }
+
             if (newFinal) finalTranscript += newFinal;
-            if (interimTranscript) recognizedTextDiv.innerHTML = `<em style="color:#888">${interimTranscript}</em>`;
+
+            if (interimTranscript) {
+                recognizedTextDiv.innerHTML = `<em style="color:#888">${interimTranscript}</em>`;
+            }
             if (finalTranscript) {
                 recognizedTextDiv.innerHTML = finalTranscript;
                 copyTextBtn.disabled = false;
@@ -583,7 +654,10 @@ if (document.getElementById('startRecord')) {
         };
 
         recognition.onerror = (event) => {
-            if (event.error !== 'no-speech') statusDiv.innerHTML = `❌ Ошибка: ${event.error}`;
+            console.error('Ошибка распознавания:', event.error);
+            if (event.error !== 'no-speech') {
+                statusDiv.innerHTML = `❌ Ошибка распознавания: ${event.error}`;
+            }
         };
 
         recognition.onend = () => {
@@ -593,7 +667,7 @@ if (document.getElementById('startRecord')) {
             }
         };
     } else {
-        recognizedTextDiv.innerHTML = '<span class="text-danger">❌ Распознавание не поддерживается. Используйте Chrome или Edge.</span>';
+        recognizedTextDiv.innerHTML = '<span class="text-danger">❌ Распознавание речи не поддерживается в вашем браузере. Используйте Chrome или Edge.</span>';
     }
 }
 
@@ -605,7 +679,7 @@ const exercisesDB = {
         exercises: [
             { name: "Лошадка", steps: ["Улыбнитесь, покажите зубы", "Цокайте языком медленно, затем быстрее", "Выполните 20 повторений"] },
             { name: "Грибок", steps: ["Улыбнитесь", "Присосите язык к нёбу", "Удержите 5–10 секунд", "Повторите 10 раз"] },
-            { name: "Барабанщик", steps: ["Улыбнитесь, приоткройте рот", "Стучите кончиком языка по альвеолам", "Произносите Д-Д-Д быстро", "Ускоряйте постепенно"] }
+            { name: "Барабанщик", steps: ["Улыбнитесь, приоткройте рот", "Стучите кончиком языка по альвеолам (за верхними зубами)", "Произносите Д-Д-Д в быстром темпе", "Постепенно ускоряйте"] }
         ]
     },
     "Звук Л": {
@@ -621,15 +695,15 @@ const exercisesDB = {
         description: "Упражнения для Ш, Ж, Ч, Щ",
         exercises: [
             { name: "Чашечка", steps: ["Откройте рот", "Высуньте широкий язык", "Поднимите края языка вверх — форма чашки", "Удержите 10 секунд, повторите 10 раз"] },
-            { name: "Фокус", steps: ["Высуньте широкий язык", "Поднимите его к верхней губе", "Подуйте на нос", "Повторите 5 раз"] }
+            { name: "Фокус", steps: ["Высуньте широкий язык", "Поднимите его к верхней губе", "Подуйте на нос так, чтобы лёгкий предмет взлетел", "Повторите 5 раз"] }
         ]
     },
     "Скороговорки": {
         icon: "⚡",
         description: "Развитие дикции и чёткости речи",
         exercises: [
-            { name: "Сибилянты", steps: ["Шла Саша по шоссе и сосала сушку", "Медленно 3 раза", "Ускоряйте постепенно", "До максимальной скорости"] },
-            { name: "Сонорные", steps: ["На горе Арарат растёт красный виноград", "Следите за звуком Р", "3 раза медленно, 3 раза быстро"] },
+            { name: "Сибилянты", steps: ["Шла Саша по шоссе и сосала сушку", "Произнесите медленно 3 раза", "Ускоряйте темп постепенно", "Доведите до максимальной скорости"] },
+            { name: "Сонорные", steps: ["На горе Арарат растёт красный виноград", "Следите за чёткостью звука Р", "3 раза медленно, 3 раза быстро"] },
             { name: "Смешанные", steps: ["Карл у Клары украл кораллы", "Выделяйте каждый слог", "Доводите до автоматизма"] }
         ]
     },
@@ -637,8 +711,8 @@ const exercisesDB = {
         icon: "🫁",
         description: "Развитие речевого дыхания",
         exercises: [
-            { name: "Свеча", steps: ["Поставьте свечу на 20 см", "Вдохните носом", "Медленно дуйте, не гася пламя", "Удержите 10 секунд"] },
-            { name: "Долгий выдох", steps: ["Глубокий вдох", "Выдыхайте очень медленно", "Выдох — не менее 10 секунд"] }
+            { name: "Свеча", steps: ["Поставьте свечу на расстоянии 20 см", "Вдохните носом", "Медленно дуйте на свечу, не гася её", "Удерживайте пламя в наклоне 10 секунд"] },
+            { name: "Долгий выдох", steps: ["Сделайте глубокий вдох", "Выдыхайте очень медленно и равномерно", "Старайтесь, чтобы выдох длился не менее 10 секунд"] }
         ]
     }
 };
@@ -646,12 +720,13 @@ const exercisesDB = {
 function renderCategories() {
     const container = document.getElementById('exerciseCategories');
     if (!container) return;
+
     container.innerHTML = '';
     for (const [category, data] of Object.entries(exercisesDB)) {
         const col = document.createElement('div');
         col.className = 'col-md-4 mb-4';
         col.innerHTML = `
-            <div class="card h-100 shadow-sm" style="cursor:pointer;transition:transform .15s"
+            <div class="card h-100 shadow-sm" style="cursor:pointer;transition:transform .15s" 
                  onmouseover="this.style.transform='translateY(-3px)'"
                  onmouseout="this.style.transform=''"
                  onclick="showCategory('${category}')">
@@ -670,9 +745,12 @@ function renderCategories() {
 function showCategory(category) {
     const data = exercisesDB[category];
     if (!data) return;
+
     document.getElementById('exerciseCategories').classList.add('d-none');
     document.getElementById('exerciseDetail').classList.remove('d-none');
-    document.getElementById('exerciseContent').innerHTML = `
+
+    const content = document.getElementById('exerciseContent');
+    content.innerHTML = `
         <h3>${data.icon} ${category}</h3>
         <p class="text-muted">${data.description}</p>
         <div class="row">
@@ -682,8 +760,10 @@ function showCategory(category) {
                         <div class="card-header"><strong>${ex.name}</strong></div>
                         <div class="card-body">
                             <ol>${ex.steps.map(s => `<li>${s}</li>`).join('')}</ol>
-                            <button class="btn btn-sm btn-success mt-2"
-                                    onclick="markDone('${category}', '${ex.name}', this)">✅ Выполнено</button>
+                            <button class="btn btn-sm btn-success mt-2" 
+                                    onclick="markDone('${category}', '${ex.name}', this)">
+                                ✅ Выполнено
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -701,6 +781,7 @@ async function markDone(category, exerciseName, btn) {
     btn.disabled = true;
     btn.textContent = '✔ Готово!';
     btn.classList.replace('btn-success', 'btn-secondary');
+
     const user = auth.currentUser;
     if (user) {
         await db.collection('users').doc(user.uid).set({
@@ -712,38 +793,51 @@ async function markDone(category, exerciseName, btn) {
 async function loadRecommendation() {
     const recDiv = document.getElementById('recommendation');
     if (!recDiv) return;
+
     const user = auth.currentUser;
     if (!user) {
         recDiv.innerHTML = '👋 <a href="login.html">Войдите</a>, чтобы получить персональные рекомендации.';
         return;
     }
+
     const doc = await db.collection('diagnostics').doc(user.uid).get();
     if (doc.exists && doc.data().text) {
-        recDiv.innerHTML = `💡 На основе вашей диагностики рекомендуем работать над чёткостью произношения. Последний текст: "<em>${doc.data().text.substring(0, 80)}…</em>"`;
+        const text = doc.data().text;
+        recDiv.innerHTML = `💡 На основе вашей диагностики рекомендуем работать над чёткостью произношения. Последний текст: "<em>${text.substring(0, 80)}…</em>"`;
     } else {
         recDiv.innerHTML = '📋 Пройдите <a href="diagnostic.html">диагностику</a>, чтобы получить персональные рекомендации.';
     }
 }
 
+// ================== Прогресс ==================
 async function loadProgress(user) {
     const totalStats = document.getElementById('totalStats');
     const lastText = document.getElementById('lastDiagnosticText');
     const lastPhonetics = document.getElementById('lastDiagnosticPhonetics');
+
     if (!totalStats) return;
+
     if (!user) {
         totalStats.innerHTML = '<a href="login.html">Войдите</a>, чтобы увидеть прогресс.';
         return;
     }
+
     try {
         const userDoc = await db.collection('users').doc(user.uid).get();
         const diagDoc = await db.collection('diagnostics').doc(user.uid).get();
+
         const userData = userDoc.data() || {};
         const diagData = diagDoc.data() || {};
+
         const diagnosticCount = userData.diagnosticCount || 0;
         const exercises = userData.exercises || {};
         const totalExercises = Object.values(exercises).reduce((sum, v) => sum + v, 0);
 
-        totalStats.innerHTML = `Диагностик пройдено: <strong>${diagnosticCount}</strong><br>Упражнений выполнено: <strong>${totalExercises}</strong>`;
+        totalStats.innerHTML = `
+            Диагностик пройдено: <strong>${diagnosticCount}</strong><br>
+            Упражнений выполнено: <strong>${totalExercises}</strong>
+        `;
+
         if (lastText) lastText.textContent = diagData.text || '—';
         if (lastPhonetics) lastPhonetics.textContent = diagData.phonetics || '—';
 
@@ -753,9 +847,15 @@ async function loadProgress(user) {
                 type: 'doughnut',
                 data: {
                     labels: Object.keys(exercises),
-                    datasets: [{ data: Object.values(exercises), backgroundColor: ['#4f46e5', '#7c3aed', '#2563eb', '#0891b2', '#059669', '#d97706'] }]
+                    datasets: [{
+                        data: Object.values(exercises),
+                        backgroundColor: ['#4f46e5', '#7c3aed', '#2563eb', '#0891b2', '#059669', '#d97706']
+                    }]
                 },
-                options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+                options: {
+                    responsive: true,
+                    plugins: { legend: { position: 'bottom' } }
+                }
             });
         } else if (ctx) {
             ctx.parentElement.innerHTML += '<p class="text-muted small mt-2 text-center">Пока нет выполненных упражнений.</p>';
@@ -766,6 +866,7 @@ async function loadProgress(user) {
     }
 }
 
+// ================== Инициализация ==================
 document.addEventListener('DOMContentLoaded', () => {
     if (document.getElementById('exerciseCategories')) {
         renderCategories();
