@@ -1,24 +1,53 @@
+/**
+ * Сервер анализа произношения
+ *
+ * Vosk  — распознавание речи (что сказал пользователь)
+ * MFA   — forced alignment эталонного текста (фонемы + тайминги)
+ * Словарь — эталонные фонемы для оценки
+ */
+
 const express = require('express');
 const multer = require('multer');
-const vosk = require('vosk');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { spawn } = require('child_process');
-const app = express();
 
+const { analyzePronunciation } = require('./pronunciation/analyze');
+const { checkMfaInstalled, getMfaStatus } = require('./pronunciation/mfa-runner');
+
+const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 
-const MODELS = {
+const USE_VOSK = process.env.USE_VOSK !== 'false';
+const VOSK_MODELS = {
     ru: path.join(__dirname, 'models', 'vosk-model-ru-0.42'),
     en: path.join(__dirname, 'models', 'vosk-model-en-us-0.42')
 };
 
-console.log('Загрузка моделей Vosk...');
-const voskModels = {
-    ru: new vosk.Model(MODELS.ru),
-    en: new vosk.Model(MODELS.en)
-};
-console.log(' Модели загружены');
+let voskModels = null;
+
+function initVosk() {
+    if (!USE_VOSK) return;
+    try {
+        const vosk = require('vosk');
+        vosk.setLogLevel(-1);
+        voskModels = {};
+        for (const [lang, modelPath] of Object.entries(VOSK_MODELS)) {
+            if (fs.existsSync(modelPath)) {
+                voskModels[lang] = new vosk.Model(modelPath);
+                console.log(`✓ Vosk ${lang}: ${modelPath}`);
+            } else {
+                console.warn(`✗ Модель Vosk не найдена: ${modelPath}`);
+            }
+        }
+    } catch (err) {
+        console.warn('Vosk недоступен:', err.message);
+        voskModels = null;
+    }
+}
+
+initVosk();
 
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
@@ -26,212 +55,142 @@ app.use((req, res, next) => {
     next();
 });
 
+app.get('/api/health', async (req, res) => {
+    const mfa = await checkMfaInstalled();
+    res.json({
+        ok: true,
+        vosk: !!(voskModels && Object.keys(voskModels).length),
+        voskLanguages: voskModels ? Object.keys(voskModels) : [],
+        mfa: mfa.installed,
+        mfaVersion: mfa.version,
+        mfaModels: getMfaStatus(),
+        ffmpeg: await checkFfmpeg()
+    });
+});
+
+async function checkFfmpeg() {
+    return new Promise(resolve => {
+        const p = spawn('ffmpeg', ['-version']);
+        p.on('error', () => resolve(false);
+        p.on('close', code => resolve(code === 0));
+    });
+}
+
 app.post('/api/pronunciation', upload.single('audio'), async (req, res) => {
-    const { language, referenceText } = req.body;
-    const audioBuffer = req.file.buffer;
+    const language = req.body.language === 'ru' ? 'ru' : 'en';
+    const referenceText = (req.body.referenceText || '').trim();
+
+    if (!req.file?.buffer?.length) {
+        return res.status(400).json({ success: false, error: 'Аудиофайл не получен' });
+    }
+    if (!referenceText) {
+        return res.status(400).json({ success: false, error: 'Укажите эталонный текст (referenceText)' });
+    }
+
+    const tempDir = path.join(__dirname, 'temp');
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+    const wavPath = path.join(tempDir, `rec_${Date.now()}.wav`);
 
     try {
-        const pcmBuffer = await convertToPCM(audioBuffer);
+        const pcmBuffer = await convertToPCM(req.file.buffer);
+        await pcmToWav(pcmBuffer, wavPath);
 
-        const model = voskModels[language] || voskModels.en;
-        const rec = new vosk.Recognizer({ model, sampleRate: 16000 });
-        rec.SetWords(true);
+        let recognizedText = '';
+        let voskWords = [];
 
-        const chunkSize = 8000;
-        for (let i = 0; i < pcmBuffer.length; i += chunkSize) {
-            const chunk = pcmBuffer.slice(i, i + chunkSize);
-            rec.acceptWaveform(chunk);
+        if (voskModels?.[language] || voskModels?.en) {
+            const vosk = require('vosk');
+            const model = voskModels[language] || voskModels.en;
+            const rec = new vosk.Recognizer({ model, sampleRate: 16000 });
+            rec.setWords(true);
+
+            const chunkSize = 8000;
+            for (let i = 0; i < pcmBuffer.length; i += chunkSize) {
+                rec.acceptWaveform(pcmBuffer.slice(i, i + chunkSize));
+            }
+            const result = JSON.parse(rec.finalResult());
+            rec.free();
+            recognizedText = result.text || '';
+            voskWords = result.result || [];
+        } else {
+            return res.status(503).json({
+                success: false,
+                error: 'Vosk не загружен. Проверьте папку models/ или установите USE_VOSK=false с другим ASR.'
+            });
         }
 
-        const result = JSON.parse(rec.finalResult());
-        rec.free();
+        const analysis = await analyzePronunciation({
+            referenceText,
+            recognizedText,
+            wavPath,
+            language
+        });
 
-        if (!result.text) {
-            return res.json({ success: false, error: 'Речь не распознана' });
+        if (!analysis.success) {
+            return res.json(analysis);
         }
-
-        const aligned = await performForcedAlignment(pcmBuffer, result.result, language);
-        const assessment = assessPronunciation(aligned, referenceText, language);
 
         res.json({
-            success: true,
-            recognizedText: result.text,
-            words: aligned,
-            assessment: assessment,
-            phonemes: extractPhonemes(aligned)
+            ...analysis,
+            voskWords
         });
 
     } catch (error) {
-        console.error('Error:', error);
+        console.error('Pronunciation error:', error);
         res.status(500).json({ success: false, error: error.message });
+    } finally {
+        try { if (fs.existsSync(wavPath)) fs.unlinkSync(wavPath); } catch { /* */ }
     }
 });
 
 function convertToPCM(audioBuffer) {
     return new Promise((resolve, reject) => {
         const ffmpeg = spawn('ffmpeg', [
-            '-i', 'pipe:0',
-            '-ar', '16000',
-            '-ac', '1',
-            '-f', 's16le',
-            'pipe:1'
-        ]);
+            '-i', 'pipe:0', '-ar', '16000', '-ac', '1', '-f', 's16le', 'pipe:1'
+        ], { stdio: ['pipe', 'pipe', 'pipe'] });
 
-        let pcmData = [];
-        ffmpeg.stdout.on('data', chunk => pcmData.push(chunk));
+        const chunks = [];
+        ffmpeg.stdout.on('data', c => chunks.push(c));
         ffmpeg.stderr.on('data', () => {});
+        ffmpeg.on('error', reject);
         ffmpeg.on('close', code => {
-            if (code === 0) resolve(Buffer.concat(pcmData));
-            else reject(new Error(`FFmpeg error: ${code}`));
+            if (code === 0) resolve(Buffer.concat(chunks));
+            else reject(new Error('FFmpeg: установите ffmpeg и добавьте в PATH'));
         });
-
         ffmpeg.stdin.write(audioBuffer);
         ffmpeg.stdin.end();
     });
 }
 
-async function performForcedAlignment(pcmBuffer, words, language) {
-    const tempDir = path.join(__dirname, 'temp');
-    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
-
-    const tempWav = path.join(tempDir, `temp_${Date.now()}.wav`);
-    const tempTxt = path.join(tempDir, `temp_${Date.now()}.txt`);
-
-    const text = words.map(w => w.word).join(' ');
-    fs.writeFileSync(tempTxt, text);
-    await pcmToWav(pcmBuffer, tempWav);
-
-    return new Promise((resolve, reject) => {
-        const mfa = spawn('mfa', [
-            'align',
-            '--single_speaker',
-            '--clean',
-            tempWav,
-            tempTxt,
-            language === 'ru' ? 'russian' : 'english_us_arpa',
-            path.join(tempDir, 'output')
-        ]);
-
-        mfa.on('close', async (code) => {
-            const outputFile = path.join(tempDir, 'output', path.basename(tempWav, '.wav') + '.TextGrid');
-            if (fs.existsSync(outputFile)) {
-                const textgrid = fs.readFileSync(outputFile, 'utf8');
-                const phonemes = parseTextGrid(textgrid);
-                fs.unlinkSync(tempWav);
-                fs.unlinkSync(tempTxt);
-                fs.unlinkSync(outputFile);
-                resolve(phonemes);
-            } else {
-                reject(new Error('MFA alignment failed'));
-            }
-        });
-    });
-}
-
 function pcmToWav(pcmBuffer, outputPath) {
-    const wavHeader = Buffer.alloc(44);
-    wavHeader.write('RIFF', 0);
-    wavHeader.writeUInt32LE(36 + pcmBuffer.length, 4);
-    wavHeader.write('WAVE', 8);
-    wavHeader.write('fmt ', 12);
-    wavHeader.writeUInt32LE(16, 16);
-    wavHeader.writeUInt16LE(1, 20);
-    wavHeader.writeUInt16LE(1, 22);
-    wavHeader.writeUInt32LE(16000, 24);
-    wavHeader.writeUInt32LE(32000, 28);
-    wavHeader.writeUInt16LE(2, 32);
-    wavHeader.writeUInt16LE(16, 34);
-    wavHeader.write('data', 36);
-    wavHeader.writeUInt32LE(pcmBuffer.length, 40);
-
-    const wavBuffer = Buffer.concat([wavHeader, pcmBuffer]);
-    fs.writeFileSync(outputPath, wavBuffer);
+    const header = Buffer.alloc(44);
+    header.write('RIFF', 0);
+    header.writeUInt32LE(36 + pcmBuffer.length, 4);
+    header.write('WAVE', 8);
+    header.write('fmt ', 12);
+    header.writeUInt32LE(16, 16);
+    header.writeUInt16LE(1, 20);
+    header.writeUInt16LE(1, 22);
+    header.writeUInt32LE(16000, 24);
+    header.writeUInt32LE(32000, 28);
+    header.writeUInt16LE(2, 32);
+    header.writeUInt16LE(16, 34);
+    header.write('data', 36);
+    header.writeUInt32LE(pcmBuffer.length, 40);
+    fs.writeFileSync(outputPath, Buffer.concat([header, pcmBuffer]));
 }
 
-function parseTextGrid(textgrid) {
-    const phonemes = [];
-    const lines = textgrid.split('\n');
-    let inPhonemeTier = false;
-    let current = {};
-
-    for (const line of lines) {
-        if (line.includes('name = "phones"')) inPhonemeTier = true;
-        if (!inPhonemeTier) continue;
-
-        if (line.includes('intervals [')) current = {};
-        if (line.includes('xmin =')) current.start = parseFloat(line.split('=')[1]);
-        if (line.includes('xmax =')) current.end = parseFloat(line.split('=')[1]);
-        if (line.includes('text =')) {
-            current.phoneme = line.split('=')[1].trim().replace(/"/g, '');
-            if (current.phoneme && current.phoneme !== '') {
-                phonemes.push({ ...current });
-            }
-        }
-    }
-    return phonemes;
-}
-
-function assessPronunciation(actualPhonemes, referenceText, language) {
-    const referencePhonemes = getReferencePhonemes(referenceText, language);
-    let totalScore = 0;
-    let phonemeCount = 0;
-    const details = [];
-
-    for (let i = 0; i < Math.min(actualPhonemes.length, referencePhonemes.length); i++) {
-        const actual = actualPhonemes[i];
-        const ref = referencePhonemes[i];
-        const distance = phonemeDistance(actual.phoneme, ref.phoneme);
-        const score = Math.max(0, 100 - distance * 20);
-        details.push({
-            phoneme: ref.phoneme,
-            actual: actual.phoneme,
-            score: score,
-            start: actual.start,
-            end: actual.end
-        });
-        totalScore += score;
-        phonemeCount++;
-    }
-    return {
-        overallScore: phonemeCount > 0 ? totalScore / phonemeCount : 0,
-        details
-    };
-}
-
-function phonemeDistance(p1, p2) {
-    if (p1 === p2) return 0;
-    const groups = {
-        vowels: ['a','e','i','o','u','ə','ɐ','ɑ','ɔ','ɛ','ɪ','ʊ'],
-        plosives: ['p','b','t','d','k','g'],
-        fricatives: ['f','v','s','z','ʃ','ʒ','θ','ð'],
-        sonorants: ['l','r','m','n','ŋ','w','j']
-    };
-    for (const g of Object.values(groups)) {
-        if (g.includes(p1) && g.includes(p2)) return 1;
-    }
-    return 2;
-}
-
-function getReferencePhonemes(text, language) {
-    const words = text.toLowerCase().split(' ');
-    const phonemes = [];
-    words.forEach((word, idx) => {
-        for (let i = 0; i < word.length; i++) {
-            phonemes.push({
-                phoneme: word[i],
-                start: idx * 0.5 + i * 0.1,
-                end: idx * 0.5 + (i + 1) * 0.1
-            });
-        }
-    });
-    return phonemes;
-}
-
-function extractPhonemes(aligned) {
-    return aligned.map(p => p.phoneme).join(' ');
-}
-
-const PORT = 3001;
-app.listen(PORT, () => {
-    console.log(` Воск идет по ${PORT}`);
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, async () => {
+    const mfa = await checkMfaInstalled();
+    console.log('');
+    console.log('═══════════════════════════════════════════');
+    console.log(`  SpeechPlatform — анализ произношения`);
+    console.log(`  http://localhost:${PORT}`);
+    console.log('───────────────────────────────────────────');
+    console.log(`  Vosk (распознавание): ${voskModels ? '✓' : '✗'}`);
+    console.log(`  MFA  (фонемы):        ${mfa.installed ? '✓ ' + mfa.version : '✗ не установлен'}`);
+    console.log('═══════════════════════════════════════════');
+    console.log('');
 });

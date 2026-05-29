@@ -1,7 +1,7 @@
 {
   "name": "speech-platform-server",
   "version": "1.0.0",
-  "description": "Vosk analysis server",
+  "description": "Pronunciation analysis server (Vosk + MFA)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
