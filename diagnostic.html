@@ -10,7 +10,7 @@
 <body>
     <nav class="navbar navbar-expand-lg sp-navbar">
         <div class="container-fluid">
-            <a class="navbar-brand" href="index.html">🎙️ SpeechPlatform</a>
+            <a class="navbar-brand" href="index.html"> SpeechPlatform</a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
@@ -31,22 +31,43 @@
         <p class="sp-page-subtitle">Выберите фразу, запишите голос и получите фонетический разбор</p>
 
         <div class="sp-card p-4 mb-4">
-            <h5 class="fw-bold mb-3">📖 Выберите текст для чтения</h5>
-            <ul id="phrases" class="list-group list-group-flush">
-                <li class="list-group-item phrase-item">Шла Саша по шоссе и сосала сушку.</li>
-                <li class="list-group-item phrase-item">На горе Арарат растёт красный виноград.</li>
-                <li class="list-group-item phrase-item">Карл у Клары украл кораллы, а Клара у Карла украла кларнет.</li>
-                <li class="list-group-item phrase-item">I think this weather is rather warm today.</li>
-                <li class="list-group-item phrase-item">She sells seashells by the seashore.</li>
-                <li class="list-group-item phrase-item">Red lorry, yellow lorry — unique New York.</li>
-            </ul>
+            <h5 class="fw-bold mb-3"> Примеры фраз для чтения</h5>
+            <div class="text-secondary">
+                <h6 class="fw-bold mt-2 mb-2">Свистящие и шипящие</h6>
+                <p class="mb-1">• Шла Саша по шоссе и сосала сушку.</p>
+                <p class="mb-1">• Жужжит жук над лужею, ждёт ужа и уже.</p>
+                <p class="mb-1">• Цапля чахла, цапля сохла, цапля сдохла наконец.</p>
+                <p class="mb-1">• Чаща чаще, чище щи, в чаще чащи не ищи.</p>
+
+                <h6 class="fw-bold mt-3 mb-2"> Звуки Р и Л</h6>
+                <p class="mb-1">• На горе Арарат растёт красный виноград.</p>
+                <p class="mb-1">• Рыла свинья белорыла, тупорыла, полдвора рылом изрыла.</p>
+                <p class="mb-1">• Король орёл, орёл король — кто из них орёл, а кто король?</p>
+                <p class="mb-1">• Лара играла на рояле, Рома играл на гитаре.</p>
+
+                <h6 class="fw-bold mt-3 mb-2"> Смешанные</h6>
+                <p class="mb-1">• Карл у Клары украл кораллы, а Клара у Карла украла кларнет.</p>
+                <p class="mb-1">• От топота копыт пыль по полю летит.</p>
+                <p class="mb-1">• Тридцать три корабля лавировали, лавировали, да не вылавировали.</p>
+                <p class="mb-1">• Кукушка кукушонку сшила капюшон.</p>
+
+                <h6 class="fw-bold mt-3 mb-2"> Твёрдые и мягкие</h6>
+                <p class="mb-1">• Дядя Федя ел медведя? — Нет, не ел, ещё не голоден.</p>
+                <p class="mb-1">• Лёша лёг в лесу, лежал, лежал — лёг и встал, и побежал.</p>
+
+                <h6 class="fw-bold mt-3 mb-2">Английский</h6>
+                <p class="mb-1">• She sells sea shells by the sea shore.</p>
+                <p class="mb-1">• Three free throws through the hoop.</p>
+                <p class="mb-1">• Red lorry, yellow lorry, red lorry, yellow lorry.</p>
+            </div>
+            <div id="diagnosticPhrasesList" style="display: none;"></div>
         </div>
 
         <div class="mb-3 d-flex flex-wrap gap-2">
-            <button id="startRecord" class="btn btn-sp-primary">🎙️ Начать запись</button>
-            <button id="stopRecord" class="btn btn-danger" disabled>⏹ Остановить</button>
-            <button id="playRecord" class="btn btn-info" disabled>▶ Прослушать</button>
-            <button id="downloadRecord" class="btn btn-secondary" disabled>⬇ Скачать</button>
+            <button id="startRecord" class="btn btn-sp-primary"> Начать запись</button>
+            <button id="stopRecord" class="btn btn-danger" disabled> Остановить</button>
+            <button id="playRecord" class="btn btn-info" disabled> Прослушать</button>
+            <button id="downloadRecord" class="btn btn-secondary" disabled> Скачать</button>
         </div>
 
         <div id="recordingStatus" class="mb-3 text-muted small"></div>
@@ -55,48 +76,20 @@
             <div class="col-12 mb-3">
                 <div class="sp-card p-3">
                     <h5 class="fw-bold mb-1">Распознанный текст</h5>
-                    <small class="text-muted d-block mb-2">Что услышала система (Vosk)</small>
                     <div id="recognizedText" class="mb-3">—</div>
-                    <button id="copyText" class="btn btn-sm btn-sp-outline" disabled>Копировать текст</button>
-                </div>
-            </div>
-            <div class="col-12 mb-3">
-                <div class="sp-card p-3">
-                    <h5 class="fw-bold mb-1">Сравнение транскрипций</h5>
-                    <small class="text-muted d-block mb-2">
-                        Снизу — фонетика из вашей записи. Зелёный — верно, красный — ошибка (сравнение с эталоном по словам).
-                        Нажмите «Анализ произношения» после записи.
-                    </small>
-                    <div id="phoneticFromRecording">
-                        <p class="text-muted mb-0 small">Пока пусто — выполните анализ после записи.</p>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-6 mb-3">
-                <div class="sp-card p-3 h-100">
-                    <h5 class="fw-bold mb-1">Эталон (словарь)</h5>
-                    <small class="text-muted d-block mb-3">Справочная транскрипция выбранной фразы</small>
-                    <div id="phoneticText" class="mb-3">—</div>
-                    <button id="copyPhonetic" class="btn btn-sm btn-sp-outline" disabled>Копировать</button>
-                </div>
-            </div>
-            <div class="col-md-6 mb-3">
-                <div class="sp-card p-3 h-100">
-                    <h5 class="fw-bold mb-1">Эталонный текст</h5>
-                    <small class="text-muted d-block mb-3">Фраза, которую нужно прочитать</small>
-                    <div id="referencePhrasePreview" class="mb-3 text-secondary">Выберите фразу выше</div>
+                    <button id="editText" class="btn btn-sm btn-warning ms-2">Редактировать текст</button>
                 </div>
             </div>
         </div>
 
         <div id="aiAnalysisBlock" class="sp-card mb-4 d-none border-primary">
-            <div class="p-3 border-bottom fw-bold" style="color:var(--sp-primary)">🎯 Анализ произношения (MFA + Vosk)</div>
+            <div class="p-3 border-bottom fw-bold" style="color:var(--sp-primary)"> Анализ произношения</div>
             <div class="p-3" id="aiAnalysisResult"></div>
         </div>
 
         <div class="mt-2 mb-5 d-flex flex-wrap gap-2">
-            <button id="saveResult" class="btn btn-sp-primary" disabled>💾 Сохранить результат (+25 XP)</button>
-            <button id="analyzeRealSpeech" class="btn btn-sp-outline">🔬 Анализ произношения</button>
+            <button id="saveResult" class="btn btn-sp-primary" disabled> Сохранить результат (+25 XP)</button>
+            <button id="analyzeRealSpeech" class="btn btn-sp-outline"> Анализ произношения</button>
         </div>
     </main>
 

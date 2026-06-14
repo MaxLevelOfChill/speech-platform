@@ -1,14 +1,13 @@
 {
   "name": "speech-platform-server",
   "version": "1.0.0",
-  "description": "Pronunciation analysis server (Vosk + MFA)",
+  "description": "Pronunciation analysis server (Allosaurus + FFmpeg)",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "set PYTHONUTF8=1 && node server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "multer": "^1.4.5-lts.1",
-    "vosk": "^0.3.32"
+    "multer": "^1.4.5-lts.1"
   }
 }
